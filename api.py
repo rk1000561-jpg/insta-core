@@ -4,78 +4,89 @@ import requests
 
 app = Flask(__name__)
 
-BASE_API = "https://instagraminfo.anshapi.workers.dev/info?username="
+# Base API worker URL
+BASE_URL = "https://instagraminfo.anshapi.workers.dev"
 
-# requests.Session() use karne se connection open rehta hai, baar-baar naya connection nahi banana padta (Speed badhegi)
+# Professional session setup taaki baar-baar connection banana na pade aur response fast aaye
 session = requests.Session()
-session.headers.update(
-    {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json",
-    }
-)
+session.headers.update({
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "application/json"
+})
+
+# Helper function jo common request handle karega aur code chota rakhega
+def fetch_from_upstream(endpoint, username):
+    try:
+        response = session.get(f"{BASE_URL}/{endpoint}?username={username}", timeout=8)
+        
+        if response.status_code != 200:
+            return {
+                "success": False, 
+                "error": f"Upstream API failed with status {response.status_code}"
+            }, response.status_code
+            
+        data = response.json()
+        return {"success": True, "data": data}, 200
+        
+    except requests.exceptions.Timeout:
+        return {"success": False, "error": "Upstream API took too long to respond"}, 504
+    except Exception as e:
+        return {"success": False, "error": str(e)}, 500
 
 
 @app.route("/")
 def home():
-    return jsonify({"owner": "R3XTRON", "status": "running"})
+    return jsonify({
+        "owner": "R3XTRON",
+        "status": "running",
+        "available_endpoints": {
+            "/api/info": "Get basic profile info",
+            "/api/posts": "Get latest 12 posts",
+            "/api/reels": "Get latest reels",
+            "/api/stories": "Get active stories"
+        }
+    })
 
-
-@app.route("/api")
-def instagram_lookup():  # Async hata diya taaki Vercel par crash na ho
+# 1. PROFILE INFO ENDPOINT
+@app.route("/api/info")
+def instagram_info():
     username = request.args.get("username", "").replace("@", "").strip().lower()
-
     if not username:
         return jsonify({"success": False, "error": "username required"}), 400
+        
+    result, status_code = fetch_from_upstream("info", username)
+    return jsonify(result), status_code
 
-    try:
-        # Timeout ko 8 seconds rakha hai taaki Vercel ke 10s limit se pehle hum apna error handle kar lein
-        response = session.get(f"{BASE_API}{username}", timeout=8)
+# 2. LATEST POSTS ENDPOINT
+@app.route("/api/posts")
+def instagram_posts():
+    username = request.args.get("username", "").replace("@", "").strip().lower()
+    if not username:
+        return jsonify({"success": False, "error": "username required"}), 400
+        
+    result, status_code = fetch_from_upstream("posts", username)
+    return jsonify(result), status_code
 
-        if response.status_code != 200:
-            return (
-                jsonify(
-                    {
-                        "success": False,
-                        "error": f"upstream api failed with status {response.status_code}",
-                    }
-                ),
-                500,
-            )
+# 3. REELS ENDPOINT
+@app.route("/api/reels")
+def instagram_reels():
+    username = request.args.get("username", "").replace("@", "").strip().lower()
+    if not username:
+        return jsonify({"success": False, "error": "username required"}), 400
+        
+    result, status_code = fetch_from_upstream("reels", username)
+    return jsonify(result), status_code
 
-        data = response.json()
-
-        if not data or "username" not in data:
-            return (
-                jsonify({"success": False, "error": "profile not found"}),
-                404,
-            )
-
-        return jsonify(
-            {
-                "success": True,
-                "data": {
-                    "username": data.get("username"),
-                    "full_name": data.get("full_name"),
-                    "id": data.get("id"),
-                    "followers": data.get("followers"),
-                    "following": data.get("following"),
-                    "bio": data.get("bio"),
-                    "is_private": data.get("is_private"),
-                    "is_verified": data.get("is_verified"),
-                    "profile_image": data.get("profile_image"),
-                },
-            }
-        )
-
-    except requests.exceptions.Timeout:
-        return (
-            jsonify({"success": False, "error": "upstream api took too long"}),
-            504,
-        )
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+# 4. STORIES ENDPOINT
+@app.route("/api/stories")
+def instagram_stories():
+    username = request.args.get("username", "").replace("@", "").strip().lower()
+    if not username:
+        return jsonify({"success": False, "error": "username required"}), 400
+        
+    result, status_code = fetch_from_upstream("stories", username)
+    return jsonify(result), status_code
 
 
-# Vercel ko batane ke liye ki app yahi hai
+# Vercel deployment support
 app = app
